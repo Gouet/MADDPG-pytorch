@@ -1,1 +1,1 @@
-# MADDPG-pytorch
+# DDPG_pytorch
