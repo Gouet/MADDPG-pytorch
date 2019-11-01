@@ -3,7 +3,7 @@ import torch.nn.functional as F
 import numpy as np
 from torch.distributions import Categorical
 
-use_cuda = torch.cuda.is_available()
+use_cuda = False#torch.cuda.is_available()
 device = torch.device("cuda" if use_cuda else "cpu")
 
 def fanin_init(size, fanin=None):
@@ -22,25 +22,25 @@ def sample_gumbel(shape, eps=1e-20, tens_type=torch.FloatTensor):
     U = torch.autograd.Variable(tens_type(*shape).uniform_(), requires_grad=False)
     return -torch.log(-torch.log(U + eps) + eps)
 
+HIDDEN_LAYER = 128
 
 class Actor(torch.nn.Module):
-    def __init__(self, inputs, actions, scaled, tau=0.001):
+    def __init__(self, inputs, actions, tau=0.001):
         super(Actor, self).__init__()
 
-        self.scaled = scaled
         self.tau = tau
 
         self.in_fn = torch.nn.BatchNorm1d(inputs)
         self.in_fn.weight.data.fill_(1)
         self.in_fn.bias.data.fill_(0)
 
-        self._fc1 = torch.nn.Linear(inputs, 64)
+        self._fc1 = torch.nn.Linear(inputs, HIDDEN_LAYER)
         self._relu1 = torch.nn.ReLU(inplace=True)
 
-        self._fc2 = torch.nn.Linear(64, 64)
+        self._fc2 = torch.nn.Linear(HIDDEN_LAYER, HIDDEN_LAYER)
         self._relu2 = torch.nn.ReLU(inplace=True)
 
-        self._fc3 = torch.nn.Linear(64, actions)
+        self._fc3 = torch.nn.Linear(HIDDEN_LAYER, actions)
 
         self._fc3.weight.data.uniform_(-0.003, 0.003)
 
@@ -87,11 +87,11 @@ class Critic(torch.nn.Module):
         self.in_fn.weight.data.fill_(1)
         self.in_fn.bias.data.fill_(0)
 
-        self.fc1 = torch.nn.Linear(inputs + actions, 64)
+        self.fc1 = torch.nn.Linear(inputs + actions, HIDDEN_LAYER)
         
-        self.fc2 = torch.nn.Linear(64, 64)
+        self.fc2 = torch.nn.Linear(HIDDEN_LAYER, HIDDEN_LAYER)
         
-        self.fc3 = torch.nn.Linear(64, 1)
+        self.fc3 = torch.nn.Linear(HIDDEN_LAYER, 1)
         self.fc3.weight.data.uniform_(-3e-3, 3e-3)
 
         self.ReLU = torch.nn.ReLU()

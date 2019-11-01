@@ -4,8 +4,11 @@ import numpy as np
 import torch
 import misc
 
-use_cuda = torch.cuda.is_available()
+use_cuda = False#torch.cuda.is_available()
 device = torch.device("cuda" if use_cuda else "cpu")
+
+MADDPG = 'MADDPG'
+DDPG = 'DDPG'
 
 class ReplayBuffer(object):
     def __init__(self, size):
@@ -113,7 +116,7 @@ class OrnsteinUhlenbeckActionNoise:
         return 'OrnsteinUhlenbeckActionNoise(mu={}, sigma={})'.format(self.mu, self.sigma)
 
 class DDPG:
-    def __init__(self, pos, actor, critic, target_actor, target_critic, gamma, batch_size, train_mode, discrete_action):
+    def __init__(self, pos, actor, critic, target_actor, target_critic, gamma, batch_size, train_mode, discrete_action, alg_mode='MADDPG'):
 
         self.actor = actor
         self.pos = pos
@@ -124,12 +127,15 @@ class DDPG:
         self.batch_size = batch_size
         self.train_mode = train_mode
         self.discrete_action = discrete_action
+        self.alg_mode = alg_mode
 
         self.target_actor.hard_copy(actor)
         self.target_critic.hard_copy(critic)
 
         self.ou = OrnsteinUhlenbeckActionNoise(mu=np.zeros(5,))
-        self.buffer = ReplayBuffer(100000)
+        self.buffer = ReplayBuffer(1e6)
+        #print('100000: ', 100000)
+        #print('1e6: ', 1e6)
 
     def load(self, filename_actor, filename_critic):
         try:
@@ -194,24 +200,38 @@ class DDPG:
         s2_batch = torch.FloatTensor(s2_batch).to(device)
 
         #Train the critic network.
-        if self.discrete_action:
-            target_actions = [misc.onehot_from_logits(worker.target_actor(nobs)) for worker, nobs in zip(workers, obs_next_n)]
-        else:
-            target_actions = [worker.target_actor(nobs) for worker, nobs in zip(workers, obs_next_n)]
 
-        obs2_concat = torch.cat(obs_next_n, dim=-1)
-        target_actions = torch.cat(target_actions, dim=-1)
+        # Get actions in MADDPG mode.
+        if self.alg_mode == MADDPG:
+            if self.discrete_action:
+                target_actions = [misc.onehot_from_logits(worker.target_actor(nobs)) for worker, nobs in zip(workers, obs_next_n)]
+            else:
+                target_actions = [worker.target_actor(nobs) for worker, nobs in zip(workers, obs_next_n)]
+
+            obs2_concat = torch.cat(obs_next_n, dim=-1)
+            target_actions = torch.cat(target_actions, dim=-1)
+        else: # Get actions in DDPG mode.
+            if self.discrete_action:
+                target_actions = misc.onehot_from_logits(self.target_actor(s2_batch))
+            else:
+                target_actions = self.target_actor(s2_batch)
+            obs2_concat = s2_batch
 
         predicted_q_value = self.target_critic(obs2_concat, target_actions)
         yi = r_batch + ((1 - t_batch) * self.gamma * predicted_q_value).detach()
 
-        obs_concat = torch.cat(obs_n, dim=-1)
-        action_concat = torch.cat(act_n, dim=-1)
+
+        if self.alg_mode == MADDPG:
+            obs_concat = torch.cat(obs_n, dim=-1)
+            action_concat = torch.cat(act_n, dim=-1)
+        else:
+            obs_concat = s_batch
+            action_concat = a_batch
 
         predictions = self.critic.train_step(obs_concat, action_concat, yi)
         
         ep_ave_max_q_value = np.amax(predictions.cpu().detach().numpy())
-
+        # End train critic model in MADDPG and DDPG
 
         #Train the actor network.
         all_pol_acs = []
@@ -222,15 +242,18 @@ class DDPG:
             curr_pol_out = self.actor(s_batch)
             curr_pol_vf_in = curr_pol_out
 
-        for i, worker, obs in zip(range(len(workers)), workers, obs_n):
-            if i == self.pos:
-                all_pol_acs.append(curr_pol_vf_in)
-            elif self.discrete_action:
-                all_pol_acs.append(misc.onehot_from_logits(worker.actor(obs)))
-            else:
-                all_pol_acs.append(worker.actor(obs))
+        if self.alg_mode == MADDPG: # Get the actions of all actors in MADDPG mode.
+            for i, worker, obs in zip(range(len(workers)), workers, obs_n):
+                if i == self.pos:
+                    all_pol_acs.append(curr_pol_vf_in)
+                elif self.discrete_action:
+                    all_pol_acs.append(misc.onehot_from_logits(worker.actor(obs)))
+                else:
+                    all_pol_acs.append(worker.actor(obs))
+            act_n_concat = torch.cat(all_pol_acs, dim=-1)
+        else: # Get ONLY the action of the current actor in DDPG.
+            act_n_concat = curr_pol_vf_in
 
-        act_n_concat = torch.cat(all_pol_acs, dim=-1)
         self.actor.train_step(self.critic, obs_concat, act_n_concat, curr_pol_out)
         
         return ep_ave_max_q_value

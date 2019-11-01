@@ -8,9 +8,12 @@ import argparse
 import torch
 from torch.utils.tensorboard import SummaryWriter
 from gym.spaces import Box
+from maddpg import MADDPG
+from time import gmtime, strftime
 
-use_cuda = torch.cuda.is_available()
+use_cuda = False#torch.cuda.is_available()
 device = torch.device("cuda" if use_cuda else "cpu")
+#torch.cuda.set_device(0)
 
 def parse_args():
     parser = argparse.ArgumentParser('Reinforcement Learning parser for DDPG')
@@ -52,59 +55,27 @@ def make_env(scenario_name, benchmark=False):
 
 def main(arglist):
     env = make_env(arglist.scenario)
-    writer = SummaryWriter(log_dir='./logs/')
+    if arglist.eval:
+        current_time = strftime("%Y-%m-%d-%H-%M-%S", gmtime())
+        writer = SummaryWriter(log_dir='./logs/' + current_time + '-' + arglist.scenario)
+    maddpg_wrapper = MADDPG()
 
-    workers = []
-    if isinstance(env.action_space, Box):
-        discrete_action = False
-    else:
-        discrete_action = True
+    maddpg_wrapper.create_agents(env, arglist)
 
-    obs_shapes = [env.observation_space[i].shape for i in range(env.n)]
-    actions_shape_n = [env.action_space[i].n for i in range(env.n)]
-    actions_n = 0
-    obs_shape_n = 0
-    for actions in actions_shape_n:
-        actions_n += actions
-    for obs_shape in obs_shapes:
-        obs_shape_n += obs_shape[0]
-
-    for i in range(env.n):
-        critic = agent.Critic(obs_shape_n, actions_n).to(device)
-        actor = agent.Actor(env.observation_space[i].shape[0], actions_shape_n[i], 2).to(device)
-        target_critic = agent.Critic(obs_shape_n, actions_n, arglist.tau).to(device)
-        target_actor = agent.Actor(env.observation_space[i].shape[0], actions_shape_n[i], 2, arglist.tau).to(device)
-
-        actor.eval()
-        critic.eval()
-        target_actor.eval()
-        target_critic.eval()
-
-        ddpg_algo = ddpg.DDPG(i, actor, critic, target_actor, target_critic, arglist.gamma, arglist.batch_size, arglist.eval, discrete_action)
-        ddpg_algo.load('./saved/actor' + str(i) + '_' + str(arglist.load_episode_saved), './saved/critic' + str(i) + '_' + str(arglist.load_episode_saved))
-        workers.append(ddpg_algo)
-        
     j = 0
     for episode in range(arglist.max_episode):
         obs = env.reset()
         terminal = False
-        network_update = False
-        ep_ave_max_q_value = [0 for i in workers]
-        total_reward = [0 for i in workers]
+        maddpg_wrapper.reset()
+        total_reward = [0 for i in maddpg_wrapper.workers]
         step = 0
-
-        for worker in workers:
-            worker.ou.reset()
 
         while not terminal and step < 25:
             if not arglist.eval:
                 env.render()
                 time.sleep(0.03)
             
-            actions = []
-            for i, worker in enumerate(workers):
-                action = worker.act(obs[i], explore=True)
-                actions.append(action)
+            actions = maddpg_wrapper.take_actions(obs)
             obs2, reward, done, info = env.step(actions)
 
             for i, rew in enumerate(reward):
@@ -113,24 +84,16 @@ def main(arglist):
             j += 1
             terminal = all(done)
             if arglist.eval:
-                for i, worker in enumerate(workers):
-                    worker.add(actions[i], [reward[i]], obs[i], obs2[i], [done[i]])
-
-                if j % 100 == 0:
-                    network_update = True
-                    for i, worker in enumerate(workers):
-                        ep_ave_max_q_value[i] += worker.train(workers)
-                    for i, worker in enumerate(workers):
-                        worker.update_targets()
+                maddpg_wrapper.update(j, actions, reward, obs, obs2, done)
+                
             obs = obs2
             step += 1
 
         if arglist.eval and episode % arglist.saved_episode == 0 and episode > 0:
-            for worker in workers:
-                worker.save('./saved/actor' + str(worker.pos) + '_' + str(episode), './saved/critic' + str(worker.pos) + '_' + str(episode))
+            maddpg_wrapper.save(episode)
 
-        if arglist.eval and network_update:
-            for worker, ep_ave_max in zip(workers, ep_ave_max_q_value):
+        if arglist.eval and maddpg_wrapper.network_update:
+            for worker, ep_ave_max in zip(maddpg_wrapper.workers, maddpg_wrapper.ep_ave_max_q_value):
                 print(worker.pos, ' => average_max_q: ', ep_ave_max / float(step), ' Reward: ', total_reward[worker.pos], ' Episode: ', episode)
                 writer.add_scalar(str(worker.pos) + '/Average_max_q', ep_ave_max / float(step), episode)
                 writer.add_scalar(str(worker.pos) + '/Reward Agent', total_reward[worker.pos], episode)
