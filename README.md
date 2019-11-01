@@ -1,6 +1,6 @@
 # MADDPG
 
-## Research Paper
+## Research Paper and environment
 
 [*Multi-Agent Actor-Critic for Mixed Cooperative-Competitive Environments*](https://arxiv.org/abs/1706.02275) (Lowe et. al. 2017)
 
