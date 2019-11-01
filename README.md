@@ -24,5 +24,5 @@ One agent is the ‘speaker’ (gray) that does not move (observes goal of other
 
 ### Click on the image.
 <p align="center">
-  <a href="https://www.youtube.com/watch?v=qAUf9z0M70M"><img src="imgs/Cooperative communication.png" height="300" alt="IMAGE ALT TEXT"></a>
+  <a href="https://www.youtube.com/watch?v=qAUf9z0M70M"><img src="imgs/Cooperative communication.png" height="300" border="20" alt="IMAGE ALT TEXT"></a>
 </p>
