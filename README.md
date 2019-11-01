@@ -23,5 +23,5 @@ python train.py --scenario simple_speaker_listener --eval --load-episode-saved [
 One agent is the ‘speaker’ (gray) that does not move (observes goal of other agent), and other agent is the listener (cannot speak, but must navigate to correct landmark).
 
 <p align="center">
-  <a href="https://www.youtube.com/watch?v=qAUf9z0M70M"></a>
+  <a href="https://www.youtube.com/watch?v=qAUf9z0M70M"><img src="imgs/Cooperative communication.png" height="300" alt="IMAGE ALT TEXT"></a>
 </p>
