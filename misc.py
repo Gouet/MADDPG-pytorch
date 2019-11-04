@@ -4,7 +4,7 @@ import torch.distributed as dist
 from torch.autograd import Variable
 import numpy as np
 
-use_cuda = False#torch.cuda.is_available()
+use_cuda = torch.cuda.is_available()
 device = torch.device("cuda" if use_cuda else "cpu")
 
 def onehot_from_logits(logits, eps=0.0):

@@ -3,7 +3,7 @@ import torch.nn.functional as F
 import numpy as np
 from torch.distributions import Categorical
 
-use_cuda = False#torch.cuda.is_available()
+use_cuda = torch.cuda.is_available()
 device = torch.device("cuda" if use_cuda else "cpu")
 
 def fanin_init(size, fanin=None):

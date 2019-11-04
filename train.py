@@ -10,8 +10,9 @@ from torch.utils.tensorboard import SummaryWriter
 from gym.spaces import Box
 from maddpg import MADDPG
 from time import gmtime, strftime
+from env_wrapper import EnvWrapper
 
-use_cuda = False#torch.cuda.is_available()
+use_cuda = torch.cuda.is_available()
 device = torch.device("cuda" if use_cuda else "cpu")
 #torch.cuda.set_device(0)
 
@@ -38,27 +39,13 @@ except OSError:
 else:  
     print ("Successfully created the directory")
 
-def make_env(scenario_name, benchmark=False):
-    from multiagent.environment import MultiAgentEnv
-    import multiagent.scenarios as scenarios
-
-    # load scenario from script
-    scenario = scenarios.load(scenario_name + ".py").Scenario()
-    # create world
-    world = scenario.make_world()
-    # create multiagent environment
-    if benchmark:
-        env = MultiAgentEnv(world, scenario.reset_world, scenario.reward, scenario.observation, scenario.benchmark_data)
-    else:
-        env = MultiAgentEnv(world, scenario.reset_world, scenario.reward, scenario.observation)
-    return env
-
 def main(arglist):
-    env = make_env(arglist.scenario)
+    ACTORS = 1
+    env = EnvWrapper(arglist.scenario, ACTORS, arglist.saved_episode)
     if arglist.eval:
         current_time = strftime("%Y-%m-%d-%H-%M-%S", gmtime())
         writer = SummaryWriter(log_dir='./logs/' + current_time + '-' + arglist.scenario)
-    maddpg_wrapper = MADDPG()
+    maddpg_wrapper = MADDPG(ACTORS)
 
     maddpg_wrapper.create_agents(env, arglist)
 
@@ -72,27 +59,28 @@ def main(arglist):
 
         while not terminal and step < 25:
             if not arglist.eval:
-                env.render()
+                env.render(0)
                 time.sleep(0.03)
             
             actions = maddpg_wrapper.take_actions(obs)
-            obs2, reward, done, info = env.step(actions)
-
-            for i, rew in enumerate(reward):
-                total_reward[i] += rew
+            obs2, reward, done = env.step(actions)
             
-            j += 1
-            terminal = all(done)
+            for actor in range(ACTORS):
+                for i, rew in enumerate(reward[actor]):
+                    total_reward[i] += rew
+            
+            j += ACTORS
+            #terminal = all(done)
             if arglist.eval:
-                maddpg_wrapper.update(j, actions, reward, obs, obs2, done)
-                
+                maddpg_wrapper.update(j, ACTORS, actions, reward, obs, obs2, done)
+            
             obs = obs2
             step += 1
 
         if arglist.eval and episode % arglist.saved_episode == 0 and episode > 0:
             maddpg_wrapper.save(episode)
 
-        if arglist.eval and maddpg_wrapper.network_update:
+        if arglist.eval:
             for worker, ep_ave_max in zip(maddpg_wrapper.workers, maddpg_wrapper.ep_ave_max_q_value):
                 print(worker.pos, ' => average_max_q: ', ep_ave_max / float(step), ' Reward: ', total_reward[worker.pos], ' Episode: ', episode)
                 writer.add_scalar(str(worker.pos) + '/Average_max_q', ep_ave_max / float(step), episode)

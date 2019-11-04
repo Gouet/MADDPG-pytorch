@@ -4,7 +4,7 @@ import numpy as np
 import torch
 import misc
 
-use_cuda = False#torch.cuda.is_available()
+use_cuda = torch.cuda.is_available()
 device = torch.device("cuda" if use_cuda else "cpu")
 
 MADDPG = 'MADDPG'
@@ -133,7 +133,7 @@ class DDPG:
         self.target_critic.hard_copy(critic)
 
         self.ou = OrnsteinUhlenbeckActionNoise(mu=np.zeros(5,))
-        self.buffer = ReplayBuffer(1e6)
+        self.buffer = ReplayBuffer(int(1e6)) #1e6
         #print('100000: ', 100000)
         #print('1e6: ', 1e6)
 
@@ -178,7 +178,7 @@ class DDPG:
         ep_ave_max_q_value = 0
 
         if len(self.buffer) <= self.batch_size:
-            return 0
+            return 0, False
         index = self.buffer.make_index(self.batch_size)
         obs_n = []
         obs_next_n = []
@@ -198,6 +198,14 @@ class DDPG:
         r_batch = torch.FloatTensor(r_batch).to(device)
         t_batch = torch.FloatTensor(t_batch).to(device)
         s2_batch = torch.FloatTensor(s2_batch).to(device)
+
+        """
+        print('s_batch:', s_batch.shape)
+        print('a_batch:', a_batch.shape)
+        print('r_batch:', r_batch.shape)
+        print('t_batch:', t_batch.shape)
+        print('s2_batch:', s2_batch.shape)
+        """
 
         #Train the critic network.
 
@@ -256,7 +264,7 @@ class DDPG:
 
         self.actor.train_step(self.critic, obs_concat, act_n_concat, curr_pol_out)
         
-        return ep_ave_max_q_value
+        return ep_ave_max_q_value, True
 
     def update_targets(self):
         self.target_actor.update(self.actor)
